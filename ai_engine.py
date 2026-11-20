@@ -2,7 +2,7 @@ import os, json, time, ccxt
 import numpy as np
 from database import get_conn
 
-exchange_data = ccxt.binance({"enableRateLimit": True, "options": {"defaultType": "spot"}})
+exchange_data = ccxt.kraken({"enableRateLimit": True})
 
 def calc_ema(prices, period):
     ema = np.zeros(len(prices), dtype=float)

@@ -154,7 +154,7 @@ function draw(){
 function loop(){
   const n=Math.floor(Date.now()/1000),rem=tfSec-(n%tfSec);
   document.getElementById('timerBox').textContent='⏱ '+String(Math.floor(rem/60)).padStart(2,'0')+':'+String(rem%60).padStart(2,'0');
-  if(targetP>0){if(visualP<=0)visualP=targetP;visualP+=(targetP-visualP)*0.4;if(Math.abs(targetP-visualP)<0.005)visualP=targetP;}
+  if(targetP>0){if(visualP<=0)visualP=targetP;visualP+=(targetP-visualP)*0.55;if(Math.abs(targetP-visualP)<0.005)visualP=targetP;}
   draw();requestAnimationFrame(loop);
 }
 requestAnimationFrame(loop);

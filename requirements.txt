@@ -1,0 +1,6 @@
+flask
+gunicorn
+ccxt
+numpy
+python-dotenv
+websocket-client

@@ -1,0 +1,162 @@
+h = open("index.html").read()
+head = h[:h.index("<script>")]
+
+script_pocket = """<script>
+const PWD = "{{ pwd }}";
+let ticks = [];
+let targetP = 0, visualP = 0, prevP = 0, uNum = 0, bNum = 0;
+
+function tab(i){
+  document.querySelectorAll(".tb").forEach((b,k)=>b.classList.toggle("act",k===i));
+  document.querySelectorAll(".tp").forEach((p,k)=>p.classList.toggle("act",k===i));
+}
+
+function draw(){
+  const cv = document.getElementById("cv");
+  if(!cv || ticks.length < 2 || visualP <= 0) return;
+  const rct = cv.getBoundingClientRect();
+  const w = rct.width || 320, h = rct.height || 220, dpr = window.devicePixelRatio || 1;
+  if(cv.width !== Math.round(w*dpr)){ cv.width = Math.round(w*dpr); cv.height = Math.round(h*dpr); }
+  const ctx = cv.getContext("2d");
+  ctx.setTransform(dpr,0,0,dpr,0,0);
+  const padL = 10, padR = 52, padT = 16, padB = 16;
+  ctx.clearRect(0,0,w,h);
+
+  const pts = ticks.slice(-55);
+  pts[pts.length - 1] = visualP;
+
+  let mn = Math.min(...pts), mx = Math.max(...pts);
+  const span = (mx - mn) || 1.0;
+  mn -= span * 0.22; mx += span * 0.22;
+  const rng = mx - mn;
+
+  const plotW = w - padL - padR, plotH = h - padT - padB;
+  const stepX = plotW / (pts.length - 1);
+
+  // Grille horizontale legere style terminal Forex
+  ctx.strokeStyle = "rgba(148, 163, 184, 0.10)";
+  ctx.lineWidth = 1;
+  for(let g = 0; g <= 3; g++){
+    const gy = padT + (g / 3) * plotH;
+    ctx.beginPath(); ctx.moveTo(padL, gy); ctx.lineTo(w - padR, gy); ctx.stroke();
+    const gPrice = mx - (g / 3) * rng;
+    ctx.fillStyle = "#64748b"; ctx.font = "10px monospace";
+    ctx.fillText(gPrice.toFixed(1), w - padR + 4, gy + 3);
+  }
+
+  // Remplissage degrade sous la courbe (style Pocket Option)
+  const grad = ctx.createLinearGradient(0, padT, 0, h - padB);
+  grad.addColorStop(0, "rgba(56, 189, 248, 0.35)");
+  grad.addColorStop(1, "rgba(56, 189, 248, 0.0)");
+
+  ctx.beginPath();
+  pts.forEach((val, idx) => {
+    const x = padL + idx * stepX;
+    const y = padT + (1 - (val - mn) / rng) * plotH;
+    if(idx === 0) ctx.moveTo(x, y);
+    else ctx.lineTo(x, y);
+  });
+  const lastX = padL + (pts.length - 1) * stepX;
+  const lastY = padT + (1 - (visualP - mn) / rng) * plotH;
+  ctx.lineTo(lastX, h - padB);
+  ctx.lineTo(padL, h - padB);
+  ctx.closePath();
+  ctx.fillStyle = grad;
+  ctx.fill();
+
+  // Ligne lumineuse continue
+  ctx.beginPath();
+  pts.forEach((val, idx) => {
+    const x = padL + idx * stepX;
+    const y = padT + (1 - (val - mn) / rng) * plotH;
+    if(idx === 0) ctx.moveTo(x, y);
+    else ctx.lineTo(x, y);
+  });
+  ctx.strokeStyle = "#38bdf8";
+  ctx.lineWidth = 2.2;
+  ctx.stroke();
+
+  // Ligne horizontale pointillee + etiquette prix en direct
+  ctx.strokeStyle = "rgba(56, 189, 248, 0.55)";
+  ctx.lineWidth = 1;
+  ctx.setLineDash([4, 4]);
+  ctx.beginPath(); ctx.moveTo(padL, lastY); ctx.lineTo(w - padR, lastY); ctx.stroke();
+  ctx.setLineDash([]);
+
+  ctx.fillStyle = "#38bdf8";
+  ctx.fillRect(w - padR + 2, lastY - 9, padR - 4, 18);
+  ctx.fillStyle = "#090d16"; ctx.font = "bold 10px monospace";
+  ctx.fillText(visualP.toFixed(1), w - padR + 4, lastY + 3);
+
+  // Halo + point pulsant a la pointe de la courbe
+  const pulse = 4 + Math.sin(Date.now() / 120) * 2.5;
+  ctx.fillStyle = "rgba(56, 189, 248, 0.28)";
+  ctx.beginPath(); ctx.arc(lastX, lastY, pulse + 3, 0, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = "#ffffff";
+  ctx.beginPath(); ctx.arc(lastX, lastY, 3.5, 0, Math.PI * 2); ctx.fill();
+}
+
+function anim(){
+  if(targetP > 0){
+    if(visualP <= 0) visualP = targetP;
+    visualP += (targetP - visualP) * 0.30;
+    if(Math.abs(targetP - visualP) < 0.005) visualP = targetP;
+    const pe = document.getElementById("px");
+    pe.textContent = visualP.toLocaleString("en-US",{minimumFractionDigits:2,maximumFractionDigits:2}) + " $";
+    if(uNum>0||bNum>0) document.getElementById("tV").textContent = (uNum+bNum*visualP).toLocaleString("en-US",{minimumFractionDigits:2,maximumFractionDigits:2}) + " $";
+    draw();
+  }
+  requestAnimationFrame(anim);
+}
+requestAnimationFrame(anim);
+
+function pushTick(px){
+  if(px <= 0) return;
+  const pe = document.getElementById("px");
+  if(px > prevP) pe.style.color = "#10b981";
+  else if(px < prevP) pe.style.color = "#ef4444";
+  prevP = px; targetP = px;
+  if(ticks.length === 0){
+    for(let k = 0; k < 45; k++) ticks.push(px);
+  } else {
+    ticks.push(px);
+    if(ticks.length > 80) ticks.shift();
+  }
+}
+
+const flux = new EventSource("/stream?pwd=" + encodeURIComponent(PWD));
+
+flux.onmessage = (event)=>{
+  try{
+    const d = JSON.parse(event.data);
+    document.getElementById("wsBadge").textContent = "● LIVE SSE";
+    pushTick(+d.prix);
+  }catch(e){}
+};
+
+flux.onerror = ()=>{
+  document.getElementById("wsBadge").textContent = "● RECONNEXION...";
+};
+
+async function pollState(){
+  try{
+    const r = await fetch("/api/state?pwd=" + encodeURIComponent(PWD) + "&t=" + Date.now());
+    if(!r.ok) return;
+    const d = await r.json();
+    if(d.live && d.live.prix > 0 && ticks.length === 0) pushTick(+d.live.prix);
+    if(d.live.solde_usdt !== "---"){ document.getElementById("uV").textContent = d.live.solde_usdt + " $"; uNum = parseFloat(d.live.solde_usdt.replace(/,/g,"")); }
+    if(d.live.solde_btc !== "---") bNum = parseFloat(d.live.solde_btc);
+    document.getElementById("posV").textContent = d.pos_active ? (Number(d.pos_active.quantite).toFixed(5) + " BTC") : "0.00000 BTC (Aucune)";
+    if(d.derniere_dec){
+      document.getElementById("reg").textContent = d.derniere_dec.regime;
+      document.getElementById("cb").textContent = (d.derniere_dec.confiance_brute*100).toFixed(1) + " %";
+      document.getElementById("cc").textContent = (d.derniere_dec.confiance_calibree*100).toFixed(1) + " %";
+    }
+  }catch(e){}
+}
+pollState();
+setInterval(pollState, 3000);
+</script>{% endif %}</body></html>"""
+
+open("index.html", "w").write(head + script_pocket)
+print("Courbe en direct style Pocket Option activee !")

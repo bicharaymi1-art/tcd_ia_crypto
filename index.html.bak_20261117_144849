@@ -1,0 +1,165 @@
+<!DOCTYPE html><html lang="fr"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0"><title>TCD TRADER PRO</title>
+<style>:root{--bg:#090d16;--card:#111827;--bd:#1f2937;--ac:#38bdf8;--gr:#10b981;--rd:#ef4444;--tx:#f3f4f6;--mu:#9ca3af}*{box-sizing:border-box}body{font-family:system-ui,sans-serif;background:var(--bg);color:var(--tx);margin:0;padding:12px}.top{display:flex;justify-content:space-between;align-items:center;background:var(--card);padding:12px;border-radius:12px;border:1px solid var(--bd);margin-bottom:10px}.tabs{display:grid;grid-template-columns:repeat(3,1fr);gap:6px;margin-bottom:10px}.tb{background:var(--card);color:var(--mu);border:1px solid var(--bd);padding:10px 4px;border-radius:10px;font-weight:700}.tb.act{background:var(--ac);color:#090d16}.tp{display:none}.tp.act{display:block}.card{background:var(--card);border:1px solid var(--bd);border-radius:12px;padding:12px;margin-bottom:10px}h2{font-size:.86rem;margin:0 0 8px 0;color:var(--ac);text-transform:uppercase}.g2{display:grid;grid-template-columns:1fr 1fr;gap:8px}.kpi{background:#0b1120;border:1px solid var(--bd);padding:9px;border-radius:8px}.kl{font-size:.7rem;color:var(--mu)}.kv{font-size:1.05rem;font-weight:800;margin-top:2px}.bg{padding:4px 9px;border-radius:20px;font-size:.72rem;font-weight:800}.ok{background:#064e3b;color:#34d399}.st{background:#7f1d1d;color:#fca5a5}.wn{background:#78350f;color:#fcd34d}canvas{width:100%;height:220px;background:#0b1120;border-radius:8px;display:block;border:1px solid var(--bd)}.btn{width:100%;padding:11px;border:none;border-radius:8px;font-weight:800;margin-top:8px}.br{background:var(--rd);color:#fff}.bg2{background:var(--gr);color:#090d16}.bb{background:var(--ac);color:#090d16}input{width:100%;padding:10px;border-radius:8px;border:1px solid var(--bd);background:#0b1120;color:#fff;margin:4px 0 8px 0}table{width:100%;border-collapse:collapse;font-size:.74rem}th,td{padding:7px 4px;border-bottom:1px solid var(--bd);text-align:left}.hs{font-family:monospace;color:var(--ac);font-size:.68rem}</style></head><body>
+{% if not auth %}<div class="card" style="max-width:380px;margin:40px auto"><h2>TCD CRYPTO AI TRADER</h2><form method="POST" action="/login"><input type="password" name="pwd" placeholder="Mot de passe" required><button class="btn bb" type="submit">Connexion</button></form></div>
+{% else %}<div class="top"><div><strong style="color:var(--ac)">TCD CRYPTO AI TRADER</strong><div style="font-size:.7rem;color:var(--mu)">{{ cfg.mode }} • WS + 250ms • IA 1H</div></div><span class="badge bg ok" id="wsBadge">● WS LIVE</span></div>
+<div class="tabs"><button class="tb act" onclick="tab(0)">📊 Cockpit</button><button class="tb" onclick="tab(1)">🧾 Historique</button><button class="tb" onclick="tab(2)">🛡️ Risques</button></div>
+<div class="tp act" id="p0"><div class="card"><h2>Portefeuille & Exposition</h2><div class="g2"><div class="kpi"><div class="kl">USDT Libre</div><div class="kv" style="color:var(--gr)" id="uV">{{ live.solde_usdt }} $</div></div><div class="kpi"><div class="kl">Position Robot Active</div><div class="kv" style="color:#fbbf24" id="posV">{{ "%.5f BTC"|format(pos_active.quantite) if pos_active else "0.00000 BTC (Aucune)" }}</div></div></div><div class="kpi" style="margin-top:8px;display:flex;justify-content:space-between"><span class="kl">Compte ({{ live.solde_btc }} BTC base)</span><span class="kv" id="tV">{{ live.valeur_totale }} $</span></div></div>
+<div class="card"><h2>Moteur IA (1H) & Bouclier (1S)</h2><div style="display:flex;justify-content:space-between;margin-bottom:8px"><span>État : {% if cfg.circuit_breaker_actif=='1' %}<span class="bg st">COUPE-CIRCUIT</span>{% else %}<span class="bg ok">ACTIF 24/7</span>{% endif %}</span><span class="bg wn" id="reg">{{ derniere_dec.regime if derniere_dec else 'INIT' }}</span></div>
+<div class="g2"><div class="kpi"><div class="kl">Confiance Brute (Seuil 62%)</div><div class="kv" id="cb">{{ '%.1f'|format(derniere_dec.confiance_brute*100) if derniere_dec else '--' }} %</div></div><div class="kpi"><div class="kl">Calibrée (Platt v3 • Exp.)</div><div class="kv" style="color:var(--ac)" id="cc">{{ '%.1f'|format(derniere_dec.confiance_calibree*100) if derniere_dec else '--' }} %</div></div></div>
+<form method="POST" action="/toggle_cb">{% if cfg.circuit_breaker_actif=='1' %}<button class="btn bg2" type="submit">▶ Réactiver le Trading</button>{% else %}<button class="btn br" type="submit">⏸ Coupe-Circuit d'Urgence</button>{% endif %}</form></div>
+<div class="card"><h2>Suivi Prix Live (1M) • Décision IA (1H) — <span id="px">{{ live.prix_str }} $</span></h2><canvas id="cv"></canvas></div></div>
+<div class="tp" id="p1"><div class="card"><h2>Ordres Signés (SHA-256)</h2><table><thead><tr><th>Date</th><th>Side</th><th>Qté</th><th>Prix</th><th>Hash</th></tr></thead><tbody>{% for o in ordres %}<tr><td>{{ o.date_str }}</td><td><strong>{{ o.side }}</strong></td><td>{{ o.quantite }}</td><td>{{ '%.2f'|format(o.prix) }}$</td><td class="hs">{{ o.hash_verification }}</td></tr>{% endfor %}</tbody></table><a href="/export/csv?pwd={{ pwd }}"><button class="btn bb" type="button">⬇ Exporter Audit CSV</button></a></div>
+<div class="card"><h2>Décisions IA Horaires (SQLite)</h2><table><thead><tr><th>Heure</th><th>Régime</th><th>Brute/Cal</th><th>Action</th></tr></thead><tbody>{% for d in decisions %}<tr><td>{{ d.date_str }}</td><td>{{ d.regime }}</td><td>{{ '%.1f'|format(d.confiance_brute*100) }}%/{{ '%.1f'|format(d.confiance_calibree*100) }}%</td><td><strong>{{ d.decision }}</strong></td></tr>{% endfor %}</tbody></table></div></div>
+<div class="tp" id="p2"><div class="card"><h2>Paramètres Risk Manager</h2><form method="POST" action="/save_config"><label class="kl">Mise par trade (USDT)</label><input type="number" step="1" name="mise_usdt" value="{{ cfg.mise_usdt }}"><label class="kl">Seuil IA (0.62 = 62%)</label><input type="number" step="0.01" min="0.50" max="0.95" name="seuil_ia" value="{{ cfg.seuil_ia }}"><label class="kl">Take-Profit (0.020 = +2%)</label><input type="number" step="0.001" name="tp_pct" value="{{ cfg.tp_pct }}"><label class="kl">Stop-Loss (0.010 = -1%)</label><input type="number" step="0.001" name="sl_pct" value="{{ cfg.sl_pct }}"><button class="btn bg2" type="submit">💾 Sauvegarder</button></form></div></div>
+<script>
+const PWD = "{{ pwd }}";
+let ticks = [];
+let targetP = 0, visualP = 0, prevP = 0, uNum = 0, bNum = 0;
+
+function tab(i){
+  document.querySelectorAll(".tb").forEach((b,k)=>b.classList.toggle("act",k===i));
+  document.querySelectorAll(".tp").forEach((p,k)=>p.classList.toggle("act",k===i));
+}
+
+function draw(){
+  const cv = document.getElementById("cv");
+  if(!cv || ticks.length < 2 || visualP <= 0) return;
+  const rct = cv.getBoundingClientRect();
+  const w = rct.width || 320, h = rct.height || 220, dpr = window.devicePixelRatio || 1;
+  if(cv.width !== Math.round(w*dpr)){ cv.width = Math.round(w*dpr); cv.height = Math.round(h*dpr); }
+  const ctx = cv.getContext("2d");
+  ctx.setTransform(dpr,0,0,dpr,0,0);
+  const padL = 10, padR = 52, padT = 16, padB = 16;
+  ctx.clearRect(0,0,w,h);
+
+  const pts = ticks.slice(-55);
+  pts[pts.length - 1] = visualP;
+
+  let mn = Math.min(...pts), mx = Math.max(...pts);
+  const span = (mx - mn) || 1.0;
+  mn -= span * 0.22; mx += span * 0.22;
+  const rng = mx - mn;
+
+  const plotW = w - padL - padR, plotH = h - padT - padB;
+  const stepX = plotW / (pts.length - 1);
+
+  // Grille horizontale legere style terminal Forex
+  ctx.strokeStyle = "rgba(148, 163, 184, 0.10)";
+  ctx.lineWidth = 1;
+  for(let g = 0; g <= 3; g++){
+    const gy = padT + (g / 3) * plotH;
+    ctx.beginPath(); ctx.moveTo(padL, gy); ctx.lineTo(w - padR, gy); ctx.stroke();
+    const gPrice = mx - (g / 3) * rng;
+    ctx.fillStyle = "#64748b"; ctx.font = "10px monospace";
+    ctx.fillText(gPrice.toFixed(1), w - padR + 4, gy + 3);
+  }
+
+  // Remplissage degrade sous la courbe (style Pocket Option)
+  const grad = ctx.createLinearGradient(0, padT, 0, h - padB);
+  grad.addColorStop(0, "rgba(56, 189, 248, 0.35)");
+  grad.addColorStop(1, "rgba(56, 189, 248, 0.0)");
+
+  ctx.beginPath();
+  pts.forEach((val, idx) => {
+    const x = padL + idx * stepX;
+    const y = padT + (1 - (val - mn) / rng) * plotH;
+    if(idx === 0) ctx.moveTo(x, y);
+    else ctx.lineTo(x, y);
+  });
+  const lastX = padL + (pts.length - 1) * stepX;
+  const lastY = padT + (1 - (visualP - mn) / rng) * plotH;
+  ctx.lineTo(lastX, h - padB);
+  ctx.lineTo(padL, h - padB);
+  ctx.closePath();
+  ctx.fillStyle = grad;
+  ctx.fill();
+
+  // Ligne lumineuse continue
+  ctx.beginPath();
+  pts.forEach((val, idx) => {
+    const x = padL + idx * stepX;
+    const y = padT + (1 - (val - mn) / rng) * plotH;
+    if(idx === 0) ctx.moveTo(x, y);
+    else ctx.lineTo(x, y);
+  });
+  ctx.strokeStyle = "#38bdf8";
+  ctx.lineWidth = 2.2;
+  ctx.stroke();
+
+  // Ligne horizontale pointillee + etiquette prix en direct
+  ctx.strokeStyle = "rgba(56, 189, 248, 0.55)";
+  ctx.lineWidth = 1;
+  ctx.setLineDash([4, 4]);
+  ctx.beginPath(); ctx.moveTo(padL, lastY); ctx.lineTo(w - padR, lastY); ctx.stroke();
+  ctx.setLineDash([]);
+
+  ctx.fillStyle = "#38bdf8";
+  ctx.fillRect(w - padR + 2, lastY - 9, padR - 4, 18);
+  ctx.fillStyle = "#090d16"; ctx.font = "bold 10px monospace";
+  ctx.fillText(visualP.toFixed(1), w - padR + 4, lastY + 3);
+
+  // Halo + point pulsant a la pointe de la courbe
+  const pulse = 4 + Math.sin(Date.now() / 120) * 2.5;
+  ctx.fillStyle = "rgba(56, 189, 248, 0.28)";
+  ctx.beginPath(); ctx.arc(lastX, lastY, pulse + 3, 0, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = "#ffffff";
+  ctx.beginPath(); ctx.arc(lastX, lastY, 3.5, 0, Math.PI * 2); ctx.fill();
+}
+
+function anim(){
+  if(targetP > 0){
+    if(visualP <= 0) visualP = targetP;
+    visualP += (targetP - visualP) * 0.30;
+    if(Math.abs(targetP - visualP) < 0.005) visualP = targetP;
+    const pe = document.getElementById("px");
+    pe.textContent = visualP.toLocaleString("en-US",{minimumFractionDigits:2,maximumFractionDigits:2}) + " $";
+    if(uNum>0||bNum>0) document.getElementById("tV").textContent = (uNum+bNum*visualP).toLocaleString("en-US",{minimumFractionDigits:2,maximumFractionDigits:2}) + " $";
+    draw();
+  }
+  requestAnimationFrame(anim);
+}
+requestAnimationFrame(anim);
+
+function pushTick(px){
+  if(px <= 0) return;
+  const pe = document.getElementById("px");
+  if(px > prevP) pe.style.color = "#10b981";
+  else if(px < prevP) pe.style.color = "#ef4444";
+  prevP = px; targetP = px;
+  if(ticks.length === 0){
+    for(let k = 0; k < 45; k++) ticks.push(px);
+  } else {
+    ticks.push(px);
+    if(ticks.length > 80) ticks.shift();
+  }
+}
+
+setInterval(async ()=>{
+  try{
+    const r = await fetch("/api/tick?pwd=" + encodeURIComponent(PWD) + "&t=" + Date.now());
+    if(!r.ok) return;
+    const d = await r.json();
+    document.getElementById("wsBadge").textContent = "● LIVE TICK";
+    pushTick(+d.prix);
+  }catch(e){}
+}, 250);
+
+async function pollState(){
+  try{
+    const r = await fetch("/api/state?pwd=" + encodeURIComponent(PWD) + "&t=" + Date.now());
+    if(!r.ok) return;
+    const d = await r.json();
+    if(d.live && d.live.prix > 0 && ticks.length === 0) pushTick(+d.live.prix);
+    if(d.live.solde_usdt !== "---"){ document.getElementById("uV").textContent = d.live.solde_usdt + " $"; uNum = parseFloat(d.live.solde_usdt.replace(/,/g,"")); }
+    if(d.live.solde_btc !== "---") bNum = parseFloat(d.live.solde_btc);
+    document.getElementById("posV").textContent = d.pos_active ? (Number(d.pos_active.quantite).toFixed(5) + " BTC") : "0.00000 BTC (Aucune)";
+    if(d.derniere_dec){
+      document.getElementById("reg").textContent = d.derniere_dec.regime;
+      document.getElementById("cb").textContent = (d.derniere_dec.confiance_brute*100).toFixed(1) + " %";
+      document.getElementById("cc").textContent = (d.derniere_dec.confiance_calibree*100).toFixed(1) + " %";
+    }
+  }catch(e){}
+}
+pollState();
+setInterval(pollState, 3000);
+</script>{% endif %}</body></html>

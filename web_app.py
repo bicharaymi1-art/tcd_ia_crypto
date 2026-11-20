@@ -224,23 +224,24 @@ def api_candles():
 
 @app.route("/api/tick")
 def api_tick():
-    if request.args.get("pwd","") != MOT_DE_PASSE_ADMIN: return jsonify({"err":1}), 403
-    px = STREAM_DATA["prix"] if STREAM_DATA["prix"] > 0 else CACHE["prix"]
-    ts = STREAM_DATA["ts"] if STREAM_DATA["ts"] > 0 else int(time.time()*1000)
-    return jsonify({"prix": px, "ts": ts})
-
-
-@app.route("/terminal.js")
-def serve_term_js(): return send_from_directory(".", "terminal.js")
-
-@app.route("/api/klines")
-def api_klines():
-    if request.args.get("pwd","") != MOT_DE_PASSE_ADMIN: return jsonify([]), 403
-    tf = request.args.get("tf", "1m")
-    try:
-        bars = exchange_chart.fetch_ohlcv("BTC/USDT", tf, limit=150)
-        return jsonify([{"t":int(ts),"o":float(o),"h":float(h),"l":float(l),"c":float(c)} for ts,o,h,l,c,v in bars])
-    except Exception: return jsonify([])
+    if request.args.get("pwd","") != MOT_DE_PASSE_ADMIN: return jsonify({}), 403
+    now_ms = int(time.time() * 1000)
+    if now_ms - int(STREAM_DATA.get("ts", 0)) > 900:
+        try:
+            import urllib.request
+            req = urllib.request.Request("https://api.kraken.com/0/public/Ticker?pair=XBTUSD", headers={"User-Agent": "Mozilla/5.0"})
+            d = json.loads(urllib.request.urlopen(req, timeout=4).read().decode())
+            res = d.get("result", {})
+            if res:
+                pair_obj = next(iter(res.values()))
+                px = float(next(iter(pair_obj["c"])))
+                if px > 0:
+                    STREAM_DATA["prix"] = px
+                    STREAM_DATA["ts"] = now_ms
+        except Exception:
+            pass
+    px = float(STREAM_DATA.get("prix", 0.0) or CACHE.get("prix", 0.0))
+    return jsonify({"prix": px, "ts": now_ms})
 
 @app.route("/api/state")
 def api_state():

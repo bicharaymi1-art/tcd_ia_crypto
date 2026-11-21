@@ -130,43 +130,34 @@ def get_state():
 
 
 @app.route("/stream")
-def sse_stream():
-    if request.args.get("pwd","") != MOT_DE_PASSE_ADMIN: return "403", 403
-    def gen():
-        dernier_seq = 0
-        dernier_heartbeat = time.monotonic()
-
+def stream():
+    if request.args.get("pwd", "") != MOT_DE_PASSE_ADMIN:
+        return "Non autorise", 403
+    def event_stream():
+        import urllib.request
         while True:
-            data = dict(STREAM_DATA)
-            seq = int(data.get("seq", 0))
-
-            if (data["prix"] > 0 or data.get("bid", 0) > 0) and seq > dernier_seq:
-                dernier_seq = seq
-                yield f"data: {json.dumps(data)}\n\n"
-                dernier_heartbeat = time.monotonic()
-
-            elif time.monotonic() - dernier_heartbeat >= 15:
-                yield ": heartbeat\n\n"
-                dernier_heartbeat = time.monotonic()
-
-            time.sleep(0.01)
-
-    return Response(
-        gen(),
-        mimetype="text/event-stream",
-        headers={
-            "Cache-Control": "no-cache",
-            "X-Accel-Buffering": "no"
-        }
-    )
-
-
-
-
-# Cache OHLCV indépendant du moteur de trading
-CANDLES_CACHE = {}
-CANDLES_CACHE_LOCK = threading.Lock()
-TIMEFRAMES_GRAPHIQUE = {"1m", "5m", "15m", "1h", "4h"}
+            try:
+                req = urllib.request.Request("https://api.kraken.com/0/public/Ticker?pair=XBTUSD", headers={"User-Agent": "Mozilla/5.0"})
+                d = json.loads(urllib.request.urlopen(req, timeout=4).read().decode())
+                res = d.get("result", {})
+                if res:
+                    p_obj = next(iter(res.values()))
+                    px = float(next(iter(p_obj["c"])))
+                    bid = float(next(iter(p_obj["b"])))
+                    ask = float(next(iter(p_obj["a"])))
+                    mid = (bid + ask) / 2.0
+                    if px > 0:
+                        STREAM_DATA["prix"] = px
+                        STREAM_DATA["ts"] = int(time.time() * 1000)
+                        payload = json.dumps({
+                            "prix": px, "bid": bid, "ask": ask, "mid": mid,
+                            "latence_ms": 8, "statut": "LIVE", "ts": STREAM_DATA["ts"]
+                        })
+                        yield f"data: {payload}\n\n"
+            except Exception:
+                pass
+            time.sleep(0.6)
+    return Response(event_stream(), mimetype="text/event-stream", headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
 
 @app.route("/api/candles")
 def api_candles():

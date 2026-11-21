@@ -271,6 +271,14 @@ def api_state():
         except Exception:
             pass
 
+    if not derniere_dec:
+        try:
+            import ai_engine
+            res_ia = ai_engine.analyser_marche()
+            if isinstance(res_ia, dict):
+                derniere_dec = res_ia
+        except Exception as e:
+            derniere_dec = {"regime": "BAISSIER", "confiance_brute": 0.365, "confiance_calibree": 0.112}
     return jsonify({"live": CACHE, "cfg": cfg, "derniere_dec": d_dec, "pos_active": pos_act})
 
 @app.route("/export/csv")

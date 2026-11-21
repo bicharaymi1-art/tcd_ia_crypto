@@ -1,6 +1,5 @@
 h = open("index.html").read()
 
-# Remplacer la fonction majTout dans ws_direct_cloud pour cibler exactement les blocs BID, ASK et MID
 old_fn = """    const bEl = document.getElementById('bidVal') || document.getElementById('bid');
     const aEl = document.getElementById('askVal') || document.getElementById('ask');
     const mEl = document.getElementById('midVal') || document.getElementById('mid');

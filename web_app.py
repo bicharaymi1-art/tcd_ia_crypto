@@ -263,6 +263,14 @@ def api_state():
         CACHE["solde_usdt"] = "10,000.00"
         CACHE["solde_btc"] = "0.00000"
         CACHE["valeur_totale"] = "10,000.00"
+    
+    if not derniere_dec:
+        try:
+            from ai_engine import analyser_marche
+            derniere_dec = analyser_marche()
+        except Exception:
+            pass
+
     return jsonify({"live": CACHE, "cfg": cfg, "derniere_dec": d_dec, "pos_active": pos_act})
 
 @app.route("/export/csv")

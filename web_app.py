@@ -16,7 +16,7 @@ MOT_DE_PASSE_ADMIN = os.getenv("ADMIN_PASSWORD", "machiwen235#").strip()
 exchange_chart = ccxt.kraken({"enableRateLimit": True})
 exchange_account = ccxt.binance({"apiKey": os.getenv("EXCHANGE_API_KEY", "").strip(), "secret": os.getenv("EXCHANGE_SECRET", "").strip(), "enableRateLimit": True, "options": {"defaultType": "spot"}})
 exchange_account.set_sandbox_mode(True)
-CACHE = {"prix": 0.0, "prix_str": "---", "candles": [], "solde_usdt": "---", "solde_btc": "---", "valeur_totale": "---", "prix_btc_usdt": 0.0, "statut_binance": "EN ATTENTE"}
+CACHE = {"prix": 0.0, "prix_str": "---", "candles": [], "solde_usdt": "10,000.00", "solde_btc": "0.00000", "valeur_totale": "10,000.00", "prix_btc_usdt": 0.0, "statut_binance": "EN ATTENTE"}
 
 def boucle_soldes_5s():
     while True:

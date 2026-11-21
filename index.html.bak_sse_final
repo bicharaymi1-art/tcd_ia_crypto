@@ -1,0 +1,254 @@
+<!DOCTYPE html><html lang="fr"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,user-scalable=no"><title>TCD PRO TERMINAL</title>
+<style>:root{--bg:#0b0e14;--panel:#131722;--bd:#2a2e39;--ac:#2962ff;--gr:#089981;--rd:#f23645;--tx:#d1d4dc;--mu:#787b86}*{box-sizing:border-box}body{font-family:-apple-system,BlinkMacSystemFont,Roboto,sans-serif;background:var(--bg);color:var(--tx);margin:0;padding:8px}.hdr{display:flex;justify-content:space-between;align-items:center;background:var(--panel);padding:9px 12px;border-radius:8px;border:1px solid var(--bd);margin-bottom:8px}.pair{display:flex;align-items:center;gap:8px;font-weight:800;font-size:.95rem;color:#fff}.bal{text-align:right}.bal-v{font-weight:800;color:var(--gr);font-size:.98rem}.bal-s{font-size:.68rem;color:var(--mu)}.nav{display:grid;grid-template-columns:repeat(3,1fr);gap:5px;margin-bottom:8px}.nb{background:var(--panel);color:var(--mu);border:1px solid var(--bd);padding:8px;border-radius:6px;font-weight:700;font-size:.78rem}.nb.act{background:var(--ac);color:#fff;border-color:var(--ac)}.pnl{display:none}.pnl.act{display:block}.chart-wrap{background:var(--panel);border:1px solid var(--bd);border-radius:8px;padding:8px;margin-bottom:8px}.tf-bar{display:flex;justify-content:space-between;align-items:center;margin-bottom:6px}.tfs{display:flex;gap:4px}.tf{background:#1e222d;color:var(--mu);border:none;padding:5px 10px;border-radius:4px;font-weight:700;font-size:.73rem}.tf.act{background:var(--ac);color:#fff}.ohlc{font-family:monospace;font-size:.69rem;color:var(--mu);margin-bottom:5px}canvas{width:100%;height:320px;background:#0b0e14;border-radius:6px;display:block}.btn-call{background:var(--gr);color:#fff;border:none;padding:13px;border-radius:8px;font-weight:800;font-size:.9rem;width:100%}.btn-put{background:var(--rd);color:#fff;border:none;padding:13px;border-radius:8px;font-weight:800;font-size:.9rem;width:100%}.ia-strip{background:var(--panel);border:1px solid var(--bd);border-radius:8px;padding:10px;display:flex;justify-content:space-between;align-items:center;font-size:.76rem;margin-top:8px}.tag{padding:3px 8px;border-radius:4px;font-weight:800;font-size:.7rem}.t-ok{background:rgba(8,153,129,.2);color:var(--gr)}.t-rd{background:rgba(242,54,69,.2);color:var(--rd)}.card{background:var(--panel);border:1px solid var(--bd);border-radius:8px;padding:12px;margin-bottom:8px}table{width:100%;border-collapse:collapse;font-size:.73rem}th,td{padding:7px 4px;border-bottom:1px solid var(--bd);text-align:left}input{width:100%;padding:10px;border-radius:6px;border:1px solid var(--bd);background:#0b0e14;color:#fff;margin:4px 0 8px 0}.quote-strip{display:grid;grid-template-columns:repeat(3,1fr);gap:6px;background:var(--panel);border:1px solid var(--bd);border-radius:8px;padding:9px;margin-bottom:8px;text-align:center}.quote-item{font-family:monospace}.quote-label{font-size:.65rem;color:var(--mu)}.quote-value{font-size:.9rem;font-weight:800;color:#fff;overflow-wrap:anywhere}#bidV{color:var(--gr)}#askV{color:var(--rd)}#midV{color:#fff}</style></head><body>
+{% if not auth %}<div class="card" style="max-width:360px;margin:50px auto"><h3 style="margin-top:0;color:#fff">TCD PRO TERMINAL</h3><form method="POST" action="/login"><input type="password" name="pwd" placeholder="Mot de passe" required><button class="btn-call" type="submit">OUVRIR LE TERMINAL</button></form></div>
+{% else %}<div class="hdr"><div class="pair"><span>₿ BTC/USD · KRAKEN</span><span class="tag t-ok" id="wsBadge">● LIVE</span><span class="tag t-ok" id="latencyBadge">● DÉLAI -- ms</span></div><div class="bal"><div class="bal-v" id="uV">{{ live.solde_usdt }} USDT</div><div class="bal-s" id="btcV">BTC : {{ live.solde_btc }}</div><div class="bal-s" id="totalV">Total : {{ live.valeur_totale }} USDT</div><div class="bal-s" id="posV">Pos: {{ "%.5f BTC"|format(pos_active.quantite) if pos_active else "0.00000 BTC" }}</div><div class="bal-s" id="binanceStatus">Binance Testnet : {{ live.statut_binance }}</div></div></div>
+<div class="quote-strip"><div class="quote-item"><div class="quote-label">BID · ACHAT</div><div class="quote-value" id="bidV">--</div></div><div class="quote-item"><div class="quote-label">ASK · VENTE</div><div class="quote-value" id="askV">--</div></div><div class="quote-item"><div class="quote-label">MID · MOYEN</div><div class="quote-value" id="midV">--</div></div></div>
+<div class="nav"><button class="nb act" onclick="tab(0)">📈 Terminal</button><button class="nb" onclick="tab(1)">🧾 Ordres (SHA)</button><button class="nb" onclick="tab(2)">🛡️ Risques</button></div>
+<div class="pnl act" id="p0"><div class="chart-wrap"><div class="tf-bar"><div class="tfs"><button class="tf act" onclick="loadTF('1m',60,this)">1M</button><button class="tf" onclick="loadTF('5m',300,this)">5M</button><button class="tf" onclick="loadTF('15m',900,this)">15M</button><button class="tf" onclick="loadTF('1h',3600,this)">1H</button></div><div style="font-family:monospace;font-size:.76rem;color:#fff" id="timerBox">⏱ 01:00</div></div><div class="ohlc" id="ohlcBar">O -- H -- L -- C --</div>
+<div style="display:flex;flex-wrap:wrap;gap:5px;align-items:center;margin-bottom:6px;font-size:.7rem">
+  <button type="button" class="tf act" id="btnType" onclick="toggleType()">🕯️ Bougies</button>
+  <button type="button" class="tf act" id="btnE1" onclick="toggleEma(1)">EMA9 <input type="color" id="colE1" value="#f59e0b" onchange="savePrefs()" style="width:16px;height:14px;border:none;padding:0;margin:0;vertical-align:middle"></button>
+  <button type="button" class="tf act" id="btnE2" onclick="toggleEma(2)">EMA21 <input type="color" id="colE2" value="#ec4899" onchange="savePrefs()" style="width:16px;height:14px;border:none;padding:0;margin:0;vertical-align:middle"></button>
+  <div style="margin-left:auto;display:flex;gap:3px">
+    <button type="button" class="tf" onclick="zoomChart(-6)">➕</button>
+    <button type="button" class="tf" onclick="zoomChart(6)">➖</button><button type="button" class="tf act" id="btnLive" onclick="resetPan()">🎯</button>
+  </div>
+</div><canvas id="cv"></canvas></div>
+<form method="POST" action="/toggle_cb" style="margin:0">{% if cfg.circuit_breaker_actif=='1' %}<button class="btn-call" type="submit">▶ RÉACTIVER LE ROBOT AUTO (SEUIL 62%)</button>{% else %}<button class="btn-put" type="submit">⏸ ARRÊT D'URGENCE (COUPE-CIRCUIT)</button>{% endif %}</form>
+<div class="ia-strip"><div><strong>IA 1H :</strong> <span id="cb">{{ '%.1f'|format(derniere_dec.confiance_brute*100) if derniere_dec else '--' }}%</span> (Cal: <span id="cc">{{ '%.1f'|format(derniere_dec.confiance_calibree*100) if derniere_dec else '--' }}%</span>)</div><span class="tag t-rd" id="reg">{{ derniere_dec.regime if derniere_dec else 'INIT' }}</span></div></div>
+<div class="pnl" id="p1"><div class="card"><table><thead><tr><th>Date</th><th>Side</th><th>Qté</th><th>Prix</th><th>SHA-256</th></tr></thead><tbody>{% for o in ordres %}<tr><td>{{ o.date_str }}</td><td><strong>{{ o.side }}</strong></td><td>{{ o.quantite }}</td><td>{{ '%.2f'|format(o.prix) }}$</td><td style="font-family:monospace;color:#2962ff">{{ o.hash_verification }}</td></tr>{% endfor %}</tbody></table><a href="/export/csv?pwd={{ pwd }}"><button class="btn-call" style="margin-top:8px" type="button">⬇ EXPORTER AUDIT CSV</button></a></div></div>
+<div class="pnl" id="p2"><div class="card"><form method="POST" action="/save_config"><label style="font-size:.72rem;color:var(--mu)">Mise par trade (USDT)</label><input type="number" step="1" name="mise_usdt" value="{{ cfg.mise_usdt }}"><label style="font-size:.72rem;color:var(--mu)">Seuil IA requis (0.62 = 62%)</label><input type="number" step="0.01" min="0.50" max="0.95" name="seuil_ia" value="{{ cfg.seuil_ia }}"><label style="font-size:.72rem;color:var(--mu)">Take-Profit (0.020 = +2%)</label><input type="number" step="0.001" name="tp_pct" value="{{ cfg.tp_pct }}"><label style="font-size:.72rem;color:var(--mu)">Stop-Loss (0.010 = -1%)</label><input type="number" step="0.001" name="sl_pct" value="{{ cfg.sl_pct }}"><button class="btn-call" type="submit">💾 SAUVEGARDER</button></form></div></div><script>
+const PWD="{{ pwd }}";
+let bars={{ candles_json|safe }}, tfSec=60, targetP={{ live.prix or 0 }}, visualP=targetP, prevP=targetP;
+let panOffset = 0, dragStartX = 0, dragStartPan = 0, pinchStartDist = 0, pinchStartZoom = 34;
+let prefs = JSON.parse(localStorage.getItem('tcd_chart_prefs') || '{"type":"candles","e1":true,"e2":true,"c1":"#f59e0b","c2":"#ec4899","zoom":34}');
+
+function applyPrefsUI(){
+  document.getElementById('btnType').textContent = prefs.type === 'candles' ? '🕯️ Bougies' : '📈 Ligne';
+  document.getElementById('btnE1').classList.toggle('act', prefs.e1);
+  document.getElementById('btnE2').classList.toggle('act', prefs.e2);
+  document.getElementById('colE1').value = prefs.c1;
+  document.getElementById('colE2').value = prefs.c2;
+  document.getElementById('btnLive').classList.toggle('act', panOffset === 0);
+}
+function savePrefs(){
+  prefs.c1 = document.getElementById('colE1').value;
+  prefs.c2 = document.getElementById('colE2').value;
+  localStorage.setItem('tcd_chart_prefs', JSON.stringify(prefs));
+  applyPrefsUI();
+}
+function toggleType(){ prefs.type = (prefs.type === 'candles') ? 'line' : 'candles'; savePrefs(); }
+function toggleEma(n){ if(n===1) prefs.e1 = !prefs.e1; else prefs.e2 = !prefs.e2; savePrefs(); }
+function zoomChart(delta){ prefs.zoom = Math.max(10, Math.min(90, (prefs.zoom || 34) + delta)); savePrefs(); }
+function resetPan(){ panOffset = 0; applyPrefsUI(); }
+applyPrefsUI();
+
+// Gestion tactile : glissement (1 doigt) et zoom par pincement (2 doigts)
+const cvEl = document.getElementById('cv');
+cvEl.style.touchAction = 'none';
+cvEl.addEventListener('touchstart', e => {
+  if(e.touches.length === 1){
+    dragStartX = e.touches.item(0).clientX;
+    dragStartPan = panOffset;
+  } else if(e.touches.length === 2){
+    pinchStartDist = Math.hypot(
+      e.touches.item(0).clientX - e.touches.item(1).clientX,
+      e.touches.item(0).clientY - e.touches.item(1).clientY
+    );
+    pinchStartZoom = prefs.zoom || 34;
+  }
+}, {passive: false});
+
+cvEl.addEventListener('touchmove', e => {
+  e.preventDefault();
+  if(e.touches.length === 1 && bars.length > 0){
+    const dx = e.touches.item(0).clientX - dragStartX;
+    const stepPx = (cvEl.clientWidth || 320) / (prefs.zoom || 34);
+    const shift = Math.round(dx / Math.max(4, stepPx));
+    const maxPan = Math.max(0, bars.length - (prefs.zoom || 34));
+    panOffset = Math.max(0, Math.min(maxPan, dragStartPan + shift));
+    document.getElementById('btnLive').classList.toggle('act', panOffset === 0);
+  } else if(e.touches.length === 2 && pinchStartDist > 0){
+    const dist = Math.hypot(
+      e.touches.item(0).clientX - e.touches.item(1).clientX,
+      e.touches.item(0).clientY - e.touches.item(1).clientY
+    );
+    const ratio = pinchStartDist / Math.max(10, dist);
+    prefs.zoom = Math.max(10, Math.min(90, Math.round(pinchStartZoom * ratio)));
+    savePrefs();
+  }
+}, {passive: false});
+
+function tab(i){document.querySelectorAll('.nb').forEach((b,k)=>b.classList.toggle('act',k===i));document.querySelectorAll('.pnl').forEach((p,k)=>p.classList.toggle('act',k===i));}
+async function loadTF(tf,sec,btn){
+  tfSec=sec; panOffset=0; applyPrefsUI();
+  document.querySelectorAll('.tfs .tf').forEach(b=>b.classList.remove('act'));if(btn)btn.classList.add('act');
+  try{const r=await fetch('/api/klines?tf='+tf+'&pwd='+encodeURIComponent(PWD));const d=await r.json();if(d&&d.length)bars=d;}catch(e){}
+}
+
+function draw(){
+  const cv=document.getElementById('cv');if(!cv||!bars||!bars.length)return;
+  const rct=cv.getBoundingClientRect(),w=rct.width||340,h=rct.height||320,dpr=window.devicePixelRatio||1;
+  if(cv.width!==Math.round(w*dpr)){cv.width=Math.round(w*dpr);cv.height=Math.round(h*dpr);}
+  const ctx=cv.getContext('2d');ctx.setTransform(dpr,0,0,dpr,0,0);
+  const padL=6,padR=60,padT=14,padB=18;ctx.clearRect(0,0,w,h);
+
+  const z = prefs.zoom || 34;
+  const endIdx = Math.max(1, bars.length - panOffset);
+  const startIdx = Math.max(0, endIdx - z);
+  const view = bars.slice(startIdx, endIdx);
+  const isLiveView = (panOffset === 0);
+
+  const lst = view.at(-1);
+  const pxLive = visualP > 0 ? visualP : bars.at(-1).c;
+  const cur = isLiveView ? {t:lst.t,o:lst.o,h:Math.max(lst.h,pxLive),l:Math.min(lst.l,pxLive),c:pxLive} : lst;
+  document.getElementById('ohlcBar').textContent='O '+cur.o.toFixed(2)+'  H '+cur.h.toFixed(2)+'  L '+cur.l.toFixed(2)+'  C '+cur.c.toFixed(2);
+
+  let mn=Infinity,mx=-Infinity;
+  for(let i=0;i<view.length;i++){const c=(i===view.length-1&&isLiveView)?cur:view.at(i);if(c.l<mn)mn=c.l;if(c.h>mx)mx=c.h;}
+  const sp=(mx-mn)||10;mn-=sp*0.12;mx+=sp*0.12;const rng=mx-mn,pW=w-padL-padR,pH=h-padT-padB;
+
+  ctx.strokeStyle='#171b26';ctx.lineWidth=1;
+  for(let g=0;g<=4;g++){const gy=padT+(g/4)*pH;ctx.beginPath();ctx.moveTo(padL,gy);ctx.lineTo(w-padR,gy);ctx.stroke();ctx.fillStyle='#787b86';ctx.font='10px monospace';ctx.fillText((mx-(g/4)*rng).toFixed(1),w-padR+5,gy+3);}
+
+  const step=pW/view.length,cw=Math.max(3,step*0.66);
+  let ema1=view.at(0).o,ema2=view.at(0).o,pts1=[],pts2=[],linePts=[];
+
+  for(let i=0;i<view.length;i++){
+    const c=(i===view.length-1&&isLiveView)?cur:view.at(i);
+    ema1=c.c*0.2+ema1*0.8; ema2=c.c*0.09+ema2*0.91;
+    const x=padL+i*step+step/2;
+    const yC=padT+(1-(c.c-mn)/rng)*pH;
+    linePts.push({x:x,y:yC});
+    pts1.push({x:x,y:padT+(1-(ema1-mn)/rng)*pH});
+    pts2.push({x:x,y:padT+(1-(ema2-mn)/rng)*pH});
+
+    if(prefs.type === 'candles'){
+      const yH=padT+(1-(c.h-mn)/rng)*pH,yL=padT+(1-(c.l-mn)/rng)*pH,yO=padT+(1-(c.o-mn)/rng)*pH;
+      const col=c.c>=c.o?'#089981':'#f23645';ctx.strokeStyle=col;ctx.fillStyle=col;ctx.lineWidth=1.3;
+      ctx.beginPath();ctx.moveTo(x,yH);ctx.lineTo(x,yL);ctx.stroke();ctx.fillRect(x-cw/2,Math.min(yO,yC),cw,Math.max(2,Math.abs(yC-yO)));
+    }
+  }
+
+  if(prefs.type === 'line' && linePts.length){
+    ctx.strokeStyle='#2962ff';ctx.lineWidth=2;ctx.beginPath();
+    linePts.forEach((pt,idx)=>{if(idx===0)ctx.moveTo(pt.x,pt.y);else ctx.lineTo(pt.x,pt.y);});ctx.stroke();
+    ctx.lineTo(linePts.at(-1).x, h-padB); ctx.lineTo(linePts.at(0).x, h-padB); ctx.closePath();
+    ctx.fillStyle='rgba(41,98,255,0.14)'; ctx.fill();
+  }
+  if(prefs.e1){
+    ctx.strokeStyle=prefs.c1;ctx.lineWidth=1.8;ctx.beginPath();
+    pts1.forEach((pt,idx)=>{if(idx===0)ctx.moveTo(pt.x,pt.y);else ctx.lineTo(pt.x,pt.y);});ctx.stroke();
+  }
+  if(prefs.e2){
+    ctx.strokeStyle=prefs.c2;ctx.lineWidth=1.8;ctx.beginPath();
+    pts2.forEach((pt,idx)=>{if(idx===0)ctx.moveTo(pt.x,pt.y);else ctx.lineTo(pt.x,pt.y);});ctx.stroke();
+  }
+
+  if(pxLive >= mn && pxLive <= mx){
+    const yLast=padT+(1-(pxLive-mn)/rng)*pH,pCol=pxLive>=prevP?'#089981':'#f23645';
+    ctx.strokeStyle=pCol;ctx.lineWidth=1;ctx.setLineDash([4,4]);ctx.beginPath();ctx.moveTo(padL,yLast);ctx.lineTo(w-padR,yLast);ctx.stroke();ctx.setLineDash([]);
+    ctx.fillStyle=pCol;ctx.fillRect(w-padR+2,yLast-9,padR-4,18);ctx.fillStyle='#fff';ctx.font='bold 10px monospace';ctx.fillText(pxLive.toFixed(1),w-padR+5,yLast+3);
+  }
+}
+
+function loop(){
+  const n=Math.floor(Date.now()/1000),rem=tfSec-(n%tfSec);
+  document.getElementById('timerBox').textContent='⏱ '+String(Math.floor(rem/60)).padStart(2,'0')+':'+String(rem%60).padStart(2,'0');
+  if(targetP>0){visualP=targetP;}
+  draw();requestAnimationFrame(loop);
+}
+requestAnimationFrame(loop);
+
+const priceStream = new EventSource(
+  '/stream?pwd=' + encodeURIComponent(PWD)
+);
+
+let dernierTickRecu = 0;
+let dernierTradeSeqUI = -1;
+
+priceStream.onopen = () => {
+  dernierTickRecu = Date.now();
+  const badge = document.getElementById('wsBadge');
+  if (badge) {
+    badge.textContent = '● CONNECTÉ';
+    badge.classList.remove('t-rd');
+    badge.classList.add('t-ok');
+  }
+};
+
+setInterval(() => {
+  const badge = document.getElementById('wsBadge');
+  if (badge && dernierTickRecu > 0 && Date.now() - dernierTickRecu > 10000) {
+    badge.textContent = '● SANS TICK';
+    badge.classList.remove('t-ok');
+    badge.classList.add('t-rd');
+  }
+}, 2000);
+
+priceStream.onmessage = (event) => {
+  try {
+    const d = JSON.parse(event.data);
+    const px = Number(d.prix);
+
+    if (!Number.isFinite(px) || px <= 0) return;
+
+    dernierTickRecu = Date.now();
+    const badge = document.getElementById('wsBadge');
+    if (badge) {
+      badge.textContent = '● LIVE';
+      badge.classList.remove('t-rd');
+      badge.classList.add('t-ok');
+    }
+
+    prevP = targetP || px;
+    targetP = px;
+
+    const ts = Number(d.ts) || Date.now();
+
+    const latencyBadge = document.getElementById('latencyBadge');
+    if (latencyBadge && Number.isFinite(Number(d.ts)) && Number(d.ts) > 0) {
+      const delta = Date.now() - Number(d.ts);
+      latencyBadge.textContent = delta >= 0
+        ? `● ~${delta} ms`
+        : `● HORLOGES DÉCALÉES`;
+    }
+
+    if (bars && bars.length) {
+      const bMs = Math.floor(ts / (tfSec * 1000)) * (tfSec * 1000);
+      const lst = bars.at(-1);
+
+      if (bMs === lst.t) {
+        lst.c = px;
+        lst.h = Math.max(lst.h, px);
+        lst.l = Math.min(lst.l, px);
+      } else if (bMs > lst.t) {
+        bars.push({
+          t: bMs,
+          o: lst.c,
+          h: Math.max(lst.c, px),
+          l: Math.min(lst.c, px),
+          c: px
+        });
+
+        if (bars.length > 160) bars.shift();
+        if (panOffset > 0) panOffset++;
+      }
+    }
+  } catch (e) {
+    console.error('[TCD SSE]', e);
+  }
+};
+
+priceStream.onerror = () => {
+  const badge = document.getElementById('wsBadge');
+  if (badge) {
+    badge.textContent = '● RECONNEXION';
+    badge.classList.remove('t-ok');
+    badge.classList.add('t-rd');
+  }
+};
+async function poll(){try{const r=await fetch('/api/state?pwd='+encodeURIComponent(PWD)+'&t='+Date.now());if(!r.ok)return;const d=await r.json();if((!bars||!bars.length)&&d.live.candles&&d.live.candles.length)bars=d.live.candles;document.getElementById('uV').textContent=d.live.solde_usdt+' USDT';document.getElementById('btcV').textContent='BTC : '+d.live.solde_btc;document.getElementById('totalV').textContent='Total : '+d.live.valeur_totale+' USDT';document.getElementById('binanceStatus').textContent='Binance Testnet : '+d.live.statut_binance;document.getElementById('posV').textContent=d.pos_active?('Pos: '+Number(d.pos_active.quantite).toFixed(5)+' BTC'):'Pos: 0.00000 BTC';if(d.derniere_dec){document.getElementById('reg').textContent=d.derniere_dec.regime;document.getElementById('cb').textContent=(d.derniere_dec.confiance_brute*100).toFixed(1)+'%';document.getElementById('cc').textContent=(d.derniere_dec.confiance_calibree*100).toFixed(1)+'%';}}catch(e){}}
+poll();setInterval(poll,2000);
+loadTF('1m', 60, document.querySelector('.tfs .tf.act'));
+</script>{% endif %}</body></html>

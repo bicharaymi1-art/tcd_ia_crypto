@@ -1,0 +1,300 @@
+from stream_server import STREAM_DATA, demarrer_ws_python
+import os, csv, io, json, time, datetime, threading, ccxt
+from dotenv import load_dotenv
+from flask import Flask, request, redirect, url_for, render_template, jsonify, Response
+from database import get_conn, init_db
+from risk_manager import lire_config
+
+load_dotenv()
+app = Flask(__name__, template_folder=".")
+@app.after_request
+def no_cache(r):
+    r.headers['Cache-Control'] = 'no-store, no-cache, must-revalidate, max-age=0'
+    return r
+MOT_DE_PASSE_ADMIN = os.getenv("ADMIN_PASSWORD", "machiwen235#").strip()
+
+exchange_chart = ccxt.kraken({"enableRateLimit": True})
+exchange_account = ccxt.binance({"apiKey": os.getenv("EXCHANGE_API_KEY", "").strip(), "secret": os.getenv("EXCHANGE_SECRET", "").strip(), "enableRateLimit": True, "options": {"defaultType": "spot"}})
+exchange_account.set_sandbox_mode(True)
+CACHE = {"prix": 0.0, "prix_str": "---", "candles": [], "solde_usdt": "---", "solde_btc": "---", "valeur_totale": "---", "prix_btc_usdt": 0.0, "statut_binance": "EN ATTENTE"}
+
+def boucle_soldes_5s():
+    while True:
+        try:
+            bal = exchange_account.fetch_balance()
+            u = float(bal.get("USDT", {}).get("total", 0.0))
+            b = float(bal.get("BTC", {}).get("total", 0.0))
+
+            CACHE["solde_usdt"] = f"{u:,.2f}"
+            CACHE["solde_btc"] = f"{b:.5f}"
+            CACHE["statut_binance"] = "CONNECTÉ"
+
+            try:
+                ticker = exchange_chart.fetch_ticker("BTC/USDT")
+                prix_usdt = float(ticker.get("last") or 0)
+
+                if prix_usdt > 0:
+                    CACHE["prix_btc_usdt"] = prix_usdt
+                    CACHE["valeur_totale"] = f"{u + b * prix_usdt:,.2f}"
+
+            except Exception as price_error:
+                print("[TCD PRIX PORTEFEUILLE] Erreur :", price_error)
+
+        except Exception as error:
+            CACHE["statut_binance"] = "ERREUR"
+            print("[TCD SOLDES] Erreur :", error)
+
+        time.sleep(5)
+
+
+# Historique initial des chandeliers : une seule récupération
+try:
+    bars = exchange_chart.fetch_ohlcv("BTC/USD", "1m", limit=150)
+    CACHE["candles"] = [
+        {"t": int(ts), "o": float(o), "h": float(h),
+         "l": float(l), "c": float(c)}
+        for ts, o, h, l, c, volume in bars
+    ]
+
+    if CACHE["candles"]:
+        CACHE["prix"] = CACHE["candles"][-1]["c"]
+        CACHE["prix_str"] = f"{CACHE['prix']:,.2f}"
+except Exception as error:
+    print("[TCD GRAPHIQUE] Historique indisponible :", error)
+
+
+def synchroniser_prix_stream():
+    dernier_seq = 0
+
+    while True:
+        try:
+            data = dict(STREAM_DATA)
+            px = float(data["prix"])
+            ts = int(data["ts"])
+            seq = int(data.get("seq", 0))
+
+            if px > 0 and seq > dernier_seq:
+                CACHE["prix"] = px
+                CACHE["prix_str"] = f"{px:,.2f}"
+
+                minute = (ts // 60000) * 60000
+
+                if CACHE["candles"]:
+                    candle = CACHE["candles"][-1]
+
+                    if minute == candle["t"]:
+                        candle["c"] = px
+                        candle["h"] = max(candle["h"], px)
+                        candle["l"] = min(candle["l"], px)
+
+                    elif minute > candle["t"]:
+                        CACHE["candles"].append({
+                            "t": minute,
+                            "o": px,
+                            "h": px,
+                            "l": px,
+                            "c": px
+                        })
+                        CACHE["candles"] = CACHE["candles"][-40:]
+
+                else:
+                    CACHE["candles"] = [{
+                        "t": minute, "o": px,
+                        "h": px, "l": px, "c": px
+                    }]
+
+                dernier_seq = seq
+
+        except Exception as error:
+            print("[TCD STREAM] Synchronisation :", error)
+
+        time.sleep(0.05)
+
+
+# Démarrage après initialisation du cache
+demarrer_ws_python()
+threading.Thread(target=boucle_soldes_5s, daemon=True).start()
+threading.Thread(target=synchroniser_prix_stream, daemon=True).start()
+
+
+def get_state():
+    cfg = lire_config()
+    conn = get_conn()
+    pos_act = conn.execute("SELECT * FROM positions WHERE statut = 'OUVERTE' LIMIT 1").fetchone()
+    o_raw = conn.execute("SELECT * FROM ordres_executes ORDER BY timestamp_utc DESC LIMIT 30").fetchall()
+    d_raw = conn.execute("SELECT * FROM decisions_ia ORDER BY timestamp_utc DESC LIMIT 15").fetchall()
+    conn.close()
+    ordres = [dict(o, date_str=datetime.datetime.fromtimestamp(o["timestamp_utc"], tz=datetime.timezone.utc).strftime("%d/%m %H:%M")) for o in o_raw]
+    decs = [dict(d, date_str=datetime.datetime.fromtimestamp(d["timestamp_utc"], tz=datetime.timezone.utc).strftime("%d/%m %H:%M")) for d in d_raw]
+    return cfg, ordres, decs, (next(iter(decs)) if decs else None), (dict(pos_act) if pos_act else None)
+
+
+@app.route("/stream")
+def sse_stream():
+    if request.args.get("pwd","") != MOT_DE_PASSE_ADMIN: return "403", 403
+    def gen():
+        dernier_seq = 0
+        dernier_heartbeat = time.monotonic()
+
+        while True:
+            data = dict(STREAM_DATA)
+            seq = int(data.get("seq", 0))
+
+            if data["prix"] > 0 and seq > dernier_seq:
+                dernier_seq = seq
+                yield f"data: {json.dumps(data)}\n\n"
+                dernier_heartbeat = time.monotonic()
+
+            elif time.monotonic() - dernier_heartbeat >= 15:
+                yield ": heartbeat\n\n"
+                dernier_heartbeat = time.monotonic()
+
+            time.sleep(0.01)
+
+    return Response(
+        gen(),
+        mimetype="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no"
+        }
+    )
+
+
+
+
+# Cache OHLCV indépendant du moteur de trading
+CANDLES_CACHE = {}
+CANDLES_CACHE_LOCK = threading.Lock()
+TIMEFRAMES_GRAPHIQUE = {"1m", "5m", "15m", "1h", "4h"}
+
+@app.route("/api/candles")
+def api_candles():
+    if request.args.get("pwd", "") != MOT_DE_PASSE_ADMIN:
+        return jsonify({"err": 1}), 403
+
+    tf = request.args.get("tf", "1m")
+    if tf not in TIMEFRAMES_GRAPHIQUE:
+        return jsonify({"err": "Intervalle invalide"}), 400
+
+    now = time.monotonic()
+
+    with CANDLES_CACHE_LOCK:
+        cached = CANDLES_CACHE.get(tf)
+
+        if cached and now - cached["at"] < 10:
+            return jsonify({
+                "symbol": "BTC/USD",
+                "timeframe": tf,
+                "candles": cached["candles"],
+                "cached": True
+            })
+
+        try:
+            bars = exchange_chart.fetch_ohlcv(
+                "BTC/USD", timeframe=tf, limit=120
+            )
+
+            candles = [
+                {
+                    "t": int(row[0]),
+                    "o": float(row[1]),
+                    "h": float(row[2]),
+                    "l": float(row[3]),
+                    "c": float(row[4]),
+                    "v": float(row[5])
+                }
+                for row in bars
+            ]
+
+            CANDLES_CACHE[tf] = {
+                "at": now,
+                "candles": candles
+            }
+
+            return jsonify({
+                "symbol": "BTC/USD",
+                "timeframe": tf,
+                "candles": candles,
+                "cached": False
+            })
+
+        except Exception as error:
+            print("[TCD OHLCV] Erreur :", error)
+
+            if cached:
+                return jsonify({
+                    "symbol": "BTC/USD",
+                    "timeframe": tf,
+                    "candles": cached["candles"],
+                    "cached": True,
+                    "stale": True
+                })
+
+            return jsonify({"err": "Données Binance indisponibles"}), 503
+
+@app.route("/api/tick")
+def api_tick():
+    if request.args.get("pwd","") != MOT_DE_PASSE_ADMIN:
+        return jsonify({}), 403
+
+    data = dict(STREAM_DATA)
+    px = float(data.get("prix", 0.0) or CACHE.get("prix", 0.0))
+
+    return jsonify({
+        "prix": px,
+        "ts": int(data.get("ts", 0)),
+        "seq": int(data.get("seq", 0)),
+        "statut": data.get("statut", "EN ATTENTE")
+    })
+
+
+@app.route("/api/state")
+def api_state():
+    if request.args.get("pwd","") != MOT_DE_PASSE_ADMIN: return jsonify({"err":1}), 403
+    cfg, ordres, decs, d_dec, pos_act = get_state()
+    return jsonify({"live": CACHE, "cfg": cfg, "derniere_dec": d_dec, "pos_active": pos_act})
+
+@app.route("/export/csv")
+def export_csv():
+    if request.args.get("pwd","") != MOT_DE_PASSE_ADMIN: return "Non autorise", 403
+    conn = get_conn()
+    rows = conn.execute("SELECT * FROM ordres_executes ORDER BY timestamp_utc ASC").fetchall()
+    conn.close()
+    si = io.StringIO(); cw = csv.writer(si)
+    cw.writerow(["ID", "ClientOrderID", "ExchangeID", "TimestampUTC", "Symbole", "Side", "Quantite", "Prix", "CoutUSDT", "Statut", "HashSHA256"])
+    for r in rows: cw.writerow([r["id"], r["client_order_id"], r["exchange_order_id"], r["timestamp_utc"], r["symbole"], r["side"], r["quantite"], r["prix"], r["cout_usdt"], r["statut"], r["hash_verification"]])
+    return Response(si.getvalue(), mimetype="text/csv", headers={"Content-Disposition": "attachment;filename=audit_tcd_trader.csv"})
+
+@app.route("/")
+def index():
+    pwd = request.args.get("pwd","")
+    if pwd != MOT_DE_PASSE_ADMIN: return render_template("index.html", auth=False)
+    cfg, ordres, decisions, derniere_dec, pos_act = get_state()
+    return render_template("index.html", auth=True, pwd=pwd, cfg=cfg, live=CACHE, candles_json=json.dumps(CACHE["candles"]), ordres=ordres, decisions=decisions, derniere_dec=derniere_dec, pos_active=pos_act)
+
+@app.route("/login", methods=["POST"])
+def login(): return redirect(url_for("index", pwd=request.form.get("pwd","")))
+
+@app.route("/toggle_cb", methods=["POST"])
+def toggle_cb():
+    cfg = lire_config()
+    nv = "0" if cfg.get("circuit_breaker_actif") == "1" else "1"
+    conn = get_conn()
+    conn.execute("UPDATE systeme_etat SET valeur=?, maj_utc=? WHERE cle='circuit_breaker_actif'", (nv, int(time.time())))
+    if nv == "0": conn.execute("UPDATE systeme_etat SET valeur='0', maj_utc=? WHERE cle='pertes_consecutives'", (int(time.time()),))
+    conn.commit(); conn.close()
+    return redirect(url_for("index", pwd=MOT_DE_PASSE_ADMIN))
+
+@app.route("/save_config", methods=["POST"])
+def save_config():
+    conn = get_conn(); now = int(time.time())
+    for k in ["mise_usdt", "seuil_ia", "tp_pct", "sl_pct"]:
+        v = request.form.get(k, "").strip()
+        if v: conn.execute("UPDATE systeme_etat SET valeur=?, maj_utc=? WHERE cle=?", (v, now, k))
+    conn.commit(); conn.close()
+    return redirect(url_for("index", pwd=MOT_DE_PASSE_ADMIN))
+
+if __name__ == "__main__":
+    init_db()
+    app.run(host="0.0.0.0", port=8080, threaded=True)

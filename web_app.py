@@ -1,4 +1,4 @@
-from stream_server import STREAM_DATA, demarrer_ws_python
+from stream_server import STREAM_DATA, _LOCK, demarrer_ws_python
 import os, csv, io, json, time, datetime, threading, ccxt
 from dotenv import load_dotenv
 from flask import Flask, request, redirect, url_for, render_template, jsonify, Response
@@ -16,7 +16,7 @@ MOT_DE_PASSE_ADMIN = os.getenv("ADMIN_PASSWORD", "machiwen235#").strip()
 exchange_chart = ccxt.kraken({"enableRateLimit": True})
 exchange_account = ccxt.binance({"apiKey": os.getenv("EXCHANGE_API_KEY", "").strip(), "secret": os.getenv("EXCHANGE_SECRET", "").strip(), "enableRateLimit": True, "options": {"defaultType": "spot"}})
 exchange_account.set_sandbox_mode(True)
-CACHE = {"prix": 0.0, "prix_str": "---", "candles": [], "solde_usdt": "10,000.00", "solde_btc": "0.00000", "valeur_totale": "10,000.00"}
+CACHE = {"prix": 0.0, "prix_str": "---", "candles": [], "solde_usdt": "---", "solde_btc": "---", "valeur_totale": "---", "prix_btc_usdt": 0.0, "statut_binance": "EN ATTENTE"}
 
 def boucle_soldes_5s():
     while True:
@@ -27,10 +27,21 @@ def boucle_soldes_5s():
 
             CACHE["solde_usdt"] = f"{u:,.2f}"
             CACHE["solde_btc"] = f"{b:.5f}"
+            CACHE["statut_binance"] = "CONNECTÉ"
 
-            if CACHE["prix"] > 0:
-                CACHE["valeur_totale"] = f"{u + b * CACHE['prix']:,.2f}"
+            try:
+                ticker = exchange_chart.fetch_ticker("BTC/USDT")
+                prix_usdt = float(ticker.get("last") or 0)
+
+                if prix_usdt > 0:
+                    CACHE["prix_btc_usdt"] = prix_usdt
+                    CACHE["valeur_totale"] = f"{u + b * prix_usdt:,.2f}"
+
+            except Exception as price_error:
+                print("[TCD PRIX PORTEFEUILLE] Erreur :", price_error)
+
         except Exception as error:
+            CACHE["statut_binance"] = "ERREUR"
             print("[TCD SOLDES] Erreur :", error)
 
         time.sleep(5)
@@ -38,7 +49,7 @@ def boucle_soldes_5s():
 
 # Historique initial des chandeliers : une seule récupération
 try:
-    bars = exchange_chart.fetch_ohlcv("BTC/USDT", "1m", limit=150)
+    bars = exchange_chart.fetch_ohlcv("BTC/USD", "1m", limit=150)
     CACHE["candles"] = [
         {"t": int(ts), "o": float(o), "h": float(h),
          "l": float(l), "c": float(c)}
@@ -60,7 +71,7 @@ def synchroniser_prix_stream():
             data = dict(STREAM_DATA)
             px = float(data["prix"])
             ts = int(data["ts"])
-            seq = int(data.get("seq", 0))
+            seq = int(data.get("trade_seq", data.get("seq", 0)))
 
             if px > 0 and seq > dernier_seq:
                 CACHE["prix"] = px
@@ -129,7 +140,7 @@ def sse_stream():
             data = dict(STREAM_DATA)
             seq = int(data.get("seq", 0))
 
-            if data["prix"] > 0 and seq > dernier_seq:
+            if (data["prix"] > 0 or data.get("bid", 0) > 0) and seq > dernier_seq:
                 dernier_seq = seq
                 yield f"data: {json.dumps(data)}\n\n"
                 dernier_heartbeat = time.monotonic()
@@ -173,7 +184,7 @@ def api_candles():
 
         if cached and now - cached["at"] < 10:
             return jsonify({
-                "symbol": "BTC/USDT",
+                "symbol": "BTC/USD",
                 "timeframe": tf,
                 "candles": cached["candles"],
                 "cached": True
@@ -181,7 +192,7 @@ def api_candles():
 
         try:
             bars = exchange_chart.fetch_ohlcv(
-                "BTC/USDT", timeframe=tf, limit=120
+                "BTC/USD", timeframe=tf, limit=120
             )
 
             candles = [
@@ -202,7 +213,7 @@ def api_candles():
             }
 
             return jsonify({
-                "symbol": "BTC/USDT",
+                "symbol": "BTC/USD",
                 "timeframe": tf,
                 "candles": candles,
                 "cached": False
@@ -213,7 +224,7 @@ def api_candles():
 
             if cached:
                 return jsonify({
-                    "symbol": "BTC/USDT",
+                    "symbol": "BTC/USD",
                     "timeframe": tf,
                     "candles": cached["candles"],
                     "cached": True,
@@ -224,24 +235,25 @@ def api_candles():
 
 @app.route("/api/tick")
 def api_tick():
-    if request.args.get("pwd","") != MOT_DE_PASSE_ADMIN: return jsonify({}), 403
-    now_ms = int(time.time() * 1000)
-    if now_ms - int(STREAM_DATA.get("ts", 0)) > 900:
-        try:
-            import urllib.request
-            req = urllib.request.Request("https://api.kraken.com/0/public/Ticker?pair=XBTUSD", headers={"User-Agent": "Mozilla/5.0"})
-            d = json.loads(urllib.request.urlopen(req, timeout=4).read().decode())
-            res = d.get("result", {})
-            if res:
-                pair_obj = next(iter(res.values()))
-                px = float(next(iter(pair_obj["c"])))
-                if px > 0:
-                    STREAM_DATA["prix"] = px
-                    STREAM_DATA["ts"] = now_ms
-        except Exception:
-            pass
-    px = float(STREAM_DATA.get("prix", 0.0) or CACHE.get("prix", 0.0))
-    return jsonify({"prix": px, "ts": now_ms})
+    if request.args.get("pwd","") != MOT_DE_PASSE_ADMIN:
+        return jsonify({}), 403
+
+    data = dict(STREAM_DATA)
+    px = float(data.get("prix", 0.0) or CACHE.get("prix", 0.0))
+
+    return jsonify({
+        "prix": px,
+        "ts": int(data.get("ts", 0)),
+        "bid": float(data.get("bid", 0.0)),
+        "ask": float(data.get("ask", 0.0)),
+        "mid": float(data.get("mid", 0.0)),
+        "quote_ts": int(data.get("quote_ts", 0)),
+        "seq": int(data.get("seq", 0)),
+        "trade_seq": int(data.get("trade_seq", 0)),
+        "quote_seq": int(data.get("quote_seq", 0)),
+        "statut": data.get("statut", "EN ATTENTE")
+    })
+
 
 @app.route("/api/state")
 def api_state():
@@ -269,6 +281,20 @@ def index():
 
 @app.route("/login", methods=["POST"])
 def login(): return redirect(url_for("index", pwd=request.form.get("pwd","")))
+
+
+@app.route("/toggle_train", methods=["POST"])
+def toggle_train():
+    if not est_authentifie(): return redirect("/")
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute("SELECT valeur FROM config WHERE cle='entrainement_actif'")
+    row = cur.fetchone()
+    nouveau = "0" if (row and str(row.get("valeur") if isinstance(row, dict) else next(iter(row))) == "1") else "1"
+    cur.execute("INSERT OR REPLACE INTO config (cle, valeur) VALUES ('entrainement_actif', ?)", (nouveau,))
+    conn.commit()
+    conn.close()
+    return redirect("/?pwd=" + MOT_DE_PASSE_ADMIN)
 
 @app.route("/toggle_cb", methods=["POST"])
 def toggle_cb():

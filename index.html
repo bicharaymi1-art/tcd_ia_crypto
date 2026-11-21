@@ -332,4 +332,22 @@ loadTF('1m', 60, document.querySelector('.tfs .tf.act'));
   connectCoinbase();
 })();
 </script>
+
+<script>
+(async function(){
+  const p = (typeof PWD !== 'undefined') ? PWD : '';
+  async function majIA(){
+    try{
+      const r = await fetch('/api/ia?pwd=' + encodeURIComponent(p) + '&t=' + Date.now());
+      if(!r.ok) return;
+      const d = await r.json();
+      if(d.regime && document.getElementById('reg')) document.getElementById('reg').textContent = d.regime;
+      if(d.confiance_brute && document.getElementById('cb')) document.getElementById('cb').textContent = (d.confiance_brute * 100).toFixed(1) + '%';
+      if(d.confiance_calibree && document.getElementById('cc')) document.getElementById('cc').textContent = (d.confiance_calibree * 100).toFixed(1) + '%';
+    }catch(e){}
+  }
+  majIA();
+  setInterval(majIA, 15000);
+})();
+</script>
 </body></html>
